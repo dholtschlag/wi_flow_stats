@@ -1,0 +1,119 @@
+---
+title: "Long Term Streamgages in Wisconsin Located in River Basins of Interest"
+author: "Dave Holtschlag"
+date: "4/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dataRetrieval)
+library(stringr)
+library(lubridate)
+library(kableExtra)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## ID Streamgages on Specified Rivers
+
+A list of USGS streamgages (site_list) was selected based on the search of the 12 Rivers included in Steve's March 31, 2021 email.  The rivers were listed as: Apple, Pecatonica, Rock, Root, Des Plaines, Kickapoo, Willow, Trempleau, Yellow, Little Eau Plaine, Wolf or Tomorrow, and Oconto. I searched the USGS site inventory for Wisconsin at URL: https://waterdata.usgs.gov/wi/nwis/inventory. I checked the 'Site Name' box in the "Site --Identifier --" column and clicked the 'Submit' button on the lower left. In the Site Name text box, I entered each of the rivers provided above in turn with the word 'River' appended to the name, as 'Apple River' for the river 'Apple.' Then, I selected the 'match any part' radio button. I chose the fields: 'Site identification number', 'Site name', 'Hydrologic unit code', 'Drainage area', and 'Peak-streamflow data count' from the drop down list, and clicked on the 'Submit' button. I selected streamgages that generally had 50 or more annual flood peaks available. The number of flood peaks generally equals or exceeds the years of daily flows. This is because streamgages, which measured flow continuously, are converted to peak-flow sites, which are only monitored for the annual peak stages (flows). 
+
+There were no streamgages with names that included 'Trempleau' or 'Eau Plaine', however, I can also search by the 8-digit HUC to see if there are daily values available.  Also, there are two streamgages that included the name 'Des Plaines,' 05527694 DES PLAINES RIVER NEAR BRISTOL, WI, and 05527740 DES PLAINES RIVER AT PLEASANT PRAIRIE, WI, but daily mean streamflow values were not found for neither of those sites. (They may be crest-stage gages only.) There were about 17 streamgages with names that included the word 'Tomorrow,' but the maximum number of years of peak flow data was only five, which was less than the threshold of 50 that I had used as a minimum to select streamgages for analysis.  
+
+ 
+```{r site_list}
+
+site_list <- c('05341500', '05434500', '05430500', '05425500', '04087240', '04087233',
+               '04087220', '05527740', '05527694', '05410500', '05410490', '05408000',
+               '05341752', '05341750', '05341740', '05402000', '05364000', '05401800',
+               '04079000', '04080000', '04077400', '04077000', '04074950', '04071000',
+               '04069700', '05367030', '05433000', '05432500', '05423500')
+
+
+```
+
+## Retrieve daily values for site list
+
+```{r get_dv, echo=FALSE}
+
+# Check where daily value file exists:
+if( file.exists('dv_flow.Rda') & !exists('dv_flow' ) ) {
+  dv_flow <- readRDS(file = "dv_flow.Rda")
+} else {
+  # Retrieve daily values from NWIS
+  dv_flow <- readNWISdv(
+    siteNumbers = site_list,
+    parameterCd = '00060',
+    statCd = "00003"
+  )
+  
+  # Rename columns to familiar headings
+  dv_flow <- renameNWISColumns(dv_flow)
+  
+  # Add water year column
+  dv_flow <- addWaterYear(dv_flow)
+  
+  # Save the daily values
+  saveRDS(dv_flow, file="dv_flow.Rda")
+}
+```
+
+
+```{r form_summary, fig.width = 9}
+
+# Compute the number of daily values per water year of record
+dv_flow1 <- dv_flow %>% 
+  group_by(site_no, waterYear) %>% 
+  summarize( n = n() )
+
+# Drop years when there was a month or more of missing days
+dv_flow2 <- dv_flow1 %>% 
+  filter(n >= 335)
+
+# Count number of years of daily values at the streamgage
+dv_flow3 <- dv_flow2 %>% 
+  group_by(site_no) %>% 
+  summarize( years_dv = n())
+
+# Retrieve site info to add additional details
+siteInfo <- readNWISsite(dv_flow3$site_no)
+
+# Create temporary file to contain the join
+tmp <- left_join(dv_flow3, siteInfo)
+
+# Re-arrange the columns of the temp file
+dv_flow4 <- tmp[, c(1,4,2,8,9,13)]
+
+
+# Fill in some missing data
+# dv_flow4[8,'station_nm']  <- 'ROOT RIVER CANAL NEAR FRANKLIN, WI'
+# dv_flow4[8,'dec_lat_va']  <-  42.815555
+# dv_flow4[8,'dec_long_va'] <- -87.9947222
+# dv_flow4[8,'huc_cd']      <- '04040002'
+# colnames(dv_flow4)[3]     <- 'years_dv'
+
+
+# Add drainage area and datum to file 
+dv_flow4 <- left_join(dv_flow4, siteInfo[, c('site_no', 'drain_area_va', 'dec_coord_datum_cd')])
+
+colnames(dv_flow4) <- c('Site_no', 'Site_name', 'Years_daily_values', 'Latitude', 
+                        'Longitude', 'Datum','Drain_area_mi2')
+
+# Write the table out
+write.csv(dv_flow4, file = 'wi_streamgages.txt', sep = '\t', row.names = FALSE,
+          quote = TRUE)
+
+dv_flow4 %>% 
+  kbl(caption = "Table 1. Summary characteristics of selected USGS Streamgages in Wisconsin") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+  
+
+```
+
+
+
+![Figure 1. Map showing selected streamgages in Wisconsin](C:\Home-Local\USGS\WI_Flow_Duration\Flow_Duration\WI_gages.gif) 
+
+
+
+
